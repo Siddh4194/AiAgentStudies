@@ -1,15 +1,17 @@
+import os
 from time import monotonic
 
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from pymongo import MongoClient
-from langchain_ollama import OllamaEmbeddings
+from langchain_ollama import OllamaEmbeddings, ChatOllama
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # ============================================================
 # 1. PASTE YOUR MONGODB ATLAS CONNECTION URL HERE
 # ============================================================
-
-MONGODB_URI = (
-    "mongodb+srv://Siddh1418:<PASSWORD>@chatbot.4zqxkh3.mongodb.net/?appName=Chatbot"
-)
+MONGODB_URI = os.getenv("MONGODB_URI")
 
 DATABASE_NAME = "rag_database"
 COLLECTION_NAME = "pdf_embeddings"
@@ -39,6 +41,13 @@ embeddings_model = OllamaEmbeddings(
     base_url="http://192.168.1.47:11434",
 )
 
+# init chat model
+chat_model = ChatOllama(
+    model="llama3.2:3b",
+    base_url="http://192.168.1.47:11434",
+    temperature=0.1,
+)
+
 
 vectorStore = MongoDBAtlasVectorSearch.from_connection_string(
     MONGODB_URI,
@@ -54,16 +63,38 @@ def query_data(query: str):
     )
 
     print("Retrieved documents:", len(results))
-
-    for index, (document, score) in enumerate(results, start=1):
-        print(f"\n--- Result {index} ---")
-        print("Score:", score)
-        print(document.page_content)
-        print("Metadata:", document.metadata)
-
+    
+    if not results:
+        print("No results found for the query.")
+        return
+    
+    context_parts = []
+    
+    for index, (doc, score) in enumerate(results, start=1):
+        print(f"\nScore: {score:.4f}")
+        print("Text snippet:", doc.page_content[:200])
+        context_parts.append(f"""
+                             source {index}
+                             page:{doc.metadata.get('page_number', 'N/A')}
+                             Content: {doc.page_content}
+                             """)
+    context = "\n\n".join(context_parts)
+    
+    prompt = f"""You are a helpful assistant
+    Answer only based on the provided context.
+    If the answer is not in the context, say "The information is not in the document" no more explanation.
+    
+    Explain the answer in detail and provide step-by-step reasoning.
+    At the end provide the page and source of the information.
+    
+    Context:{context}
+    
+    Question: {query}"""
+    
+    response = chat_model.invoke(prompt)
+    
+    print("\nResponse:\n", response)
 
 query_data(
-    "Primary Keys: In the relational model, each row in a table must have a unique" 
-"identifier, which is known as the primary key. This ensures that each row is"
-"unique, can be accessed, and manipulated easily. "
+    "What is the milleage of the mercedez benz 2020 model?"
 )
